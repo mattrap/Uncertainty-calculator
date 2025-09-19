@@ -1,0 +1,147 @@
+{
+  "instrument": "Fluke 115",
+  "specifications": {
+    "dc_millivolts": [
+      {
+        "range_max": "600.0 mV",
+        "resolution": "0.1 mV",
+        "accuracy": "\u00b1(0.5% + 2)"
+      }
+    ],
+    "dc_volts": [
+      {
+        "range_max": "6.000 V",
+        "resolution": "0.001 V",
+        "accuracy": "\u00b1(0.5% + 2)"
+      },
+      {
+        "range_max": "60.00 V",
+        "resolution": "0.01 V",
+        "accuracy": "\u00b1(0.5% + 2)"
+      },
+      {
+        "range_max": "600.0 V",
+        "resolution": "0.1 V",
+        "accuracy": "\u00b1(0.5% + 2)"
+      }
+    ],
+    "ac_millivolts": [
+      {
+        "range_max": "600.0 mV",
+        "resolution": "0.1 mV",
+        "accuracy": {
+          "45-500Hz": "\u00b1(1.0% + 3)",
+          "500Hz-1kHz": "\u00b1(2.0% + 3)"
+        }
+      }
+    ],
+    "ac_volts": [
+      {
+        "range_max": "6.000 V",
+        "resolution": "0.001 V",
+        "accuracy": {
+          "45-500Hz": "\u00b1(1.0% + 3)",
+          "500Hz-1kHz": "\u00b1(2.0% + 3)"
+        }
+      },
+      {
+        "range_max": "60.00 V",
+        "resolution": "0.01 V",
+        "accuracy": {
+          "45-500Hz": "\u00b1(1.0% + 3)",
+          "500Hz-1kHz": "\u00b1(2.0% + 3)"
+        }
+      },
+      {
+        "range_max": "600.0 V",
+        "resolution": "0.1 V",
+        "accuracy": {
+          "45-500Hz": "\u00b1(1.0% + 3)",
+          "500Hz-1kHz": "\u00b1(2.0% + 3)"
+        }
+      }
+    ],
+    "ohms": [
+      {
+        "range_max": "600.0 \u03a9",
+        "resolution": "0.1 \u03a9",
+        "accuracy": "\u00b1(0.9% + 2)"
+      },
+      {
+        "range_max": "6.000 k\u03a9",
+        "resolution": "0.001 k\u03a9",
+        "accuracy": "\u00b1(0.9% + 1)"
+      },
+      {
+        "range_max": "60.00 k\u03a9",
+        "resolution": "0.01 k\u03a9",
+        "accuracy": "\u00b1(0.9% + 1)"
+      },
+      {
+        "range_max": "600.0 k\u03a9",
+        "resolution": "0.1 k\u03a9",
+        "accuracy": "\u00b1(0.9% + 1)"
+      },
+      {
+        "range_max": "6.000 M\u03a9",
+        "resolution": "0.001 M\u03a9",
+        "accuracy": "\u00b1(0.9% + 1)"
+      },
+      {
+        "range_max": "40.00 M\u03a9",
+        "resolution": "0.01 M\u03a9",
+        "accuracy": "\u00b1(5.0% + 2)"
+      }
+    ],
+    "dc_amperes": [
+      {
+        "range_max": "6.000 A",
+        "resolution": "0.001 A",
+        "accuracy": "\u00b1(1.0% + 3)"
+      },
+      {
+        "range_max": "10.00 A",
+        "resolution": "0.01 A",
+        "accuracy": "\u00b1(1.0% + 3)"
+      }
+    ],
+    "ac_amperes": [
+      {
+        "range_max": "6.000 A",
+        "resolution": "0.001 A",
+        "accuracy": {
+          "45-500Hz": "\u00b1(1.5% + 3)"
+        }
+      },
+      {
+        "range_max": "10.00 A",
+        "resolution": "0.01 A",
+        "accuracy": {
+          "45-500Hz": "\u00b1(1.5% + 3)"
+        }
+      }
+    ],
+    "capacitance": [
+      {
+        "range_max": "1000 nF",
+        "resolution": "1 nF",
+        "accuracy": "\u00b1(1.9% + 2)"
+      },
+      {
+        "range_max": "10.00 \u00b5F",
+        "resolution": "0.01 \u00b5F",
+        "accuracy": "\u00b1(1.9% + 2)"
+      },
+      {
+        "range_max": "100.0 \u00b5F",
+        "resolution": "0.1 \u00b5F",
+        "accuracy": "\u00b1(1.9% + 2)"
+      },
+      {
+        "range_max": "9999 \u00b5F",
+        "resolution": "1 \u00b5F",
+        "accuracy": "100 \u00b5F\u20131000 \u00b5F: \u00b1(1.9% + 2); >1000 \u00b5F: \u00b1(5% + 20)"
+      }
+    ]
+  }
+}

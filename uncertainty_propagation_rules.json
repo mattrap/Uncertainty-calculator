@@ -1,0 +1,161 @@
+{
+  "title": "Uncertainty Propagation Rules",
+  "version": "1.0.0",
+  "updated": "2025-09-19",
+  "description": "Programmatic rules for propagating measurement uncertainties. Pick a rule family based on the complexity and accuracy required: 'simplest' (uniform interval, conservative), 'better' (RSS for independent random errors), 'even_better' (single-variable calculus), 'pro' (multivariable with partial derivatives), and 'repeated_measurements' (statistics for mean & spread). Apply rules recursively on an expression tree; combine absolute uncertainties for sums/differences and fractional uncertainties for products/quotients as specified by the chosen family. For functions not covered, use the upper–lower–bound method.",
+  "source": {
+    "document": "Uncertainty propagation.pdf",
+    "sections": [
+      "3.1 Introduction",
+      "3.2 Simplest Rules",
+      "3.3 Better Rules",
+      "3.4 Even Better Rules",
+      "3.5 Pro Method",
+      "3.6 Repeated Measurements"
+    ],
+    "citation": "Champlain College Physics SN2, Chapter 3: Propagating Uncertainties"
+  },
+  "rule_families": {
+    "simplest": {
+      "model": "Uniform probability inside the ±interval (100% inside, 0% outside). Accepted in this class; overestimates uncertainty.",
+      "references": [
+        "3.2 Simplest Rules"
+      ],
+      "operators": {
+        "sum_or_difference": {
+          "id": "3.2.1",
+          "name": "Add absolute uncertainties",
+          "equation_text": "If q = x + y − z − w then δq = δx + δy + δz + δw",
+          "algorithm": {
+            "type": "absolute_linear",
+            "pseudocode": "u(q) = Σ u(operand)"
+          }
+        },
+        "product_or_quotient": {
+          "id": "3.2.2",
+          "name": "Add fractional uncertainties",
+          "equation_text": "If q = (x·y)/(z·w) then δq/|q| = δx/|x| + δy/|y| + δz/|z| + δw/|w|",
+          "algorithm": {
+            "type": "relative_linear",
+            "pseudocode": "u_rel(q) = Σ u(op)/|op|; u(q) = |q| * u_rel(q)"
+          }
+        },
+        "times_exact_constant": {
+          "id": "3.2.3",
+          "name": "Multiplication by an exact number",
+          "equation_text": "If q = Bx with exact B, then δq = |B| δx (fractional uncertainty unchanged)",
+          "algorithm": {
+            "type": "scale_exact",
+            "pseudocode": "u(q) = |B| * u(x)"
+          }
+        },
+        "power_function": {
+          "id": "3.2.4",
+          "name": "Power rule (numeric exponent)",
+          "equation_text": "If q = x^n then δq/|q| = |n| · δx/|x| (includes n=1/2 for square root)",
+          "algorithm": {
+            "type": "power_numeric",
+            "pseudocode": "u_rel(q) = |n| * u(x)/|x|; u(q) = |q| * u_rel(q)"
+          }
+        },
+        "other_functions_upper_lower": {
+          "id": "3.2.5",
+          "name": "Upper–lower–bound method",
+          "equation_text": "δq = |q_max − q_min| / 2, with q_max = f(x+δx, …), q_min = f(x−δx, …)",
+          "algorithm": {
+            "type": "upper_lower_bound",
+            "pseudocode": "u(q) = |f(upper) − f(lower)| / 2"
+          }
+        }
+      }
+    },
+    "better": {
+      "model": "Independent random errors combined in quadrature (RSS). More realistic than 'simplest'.",
+      "references": [
+        "3.3 Better Rules"
+      ],
+      "operators": {
+        "sum_or_difference": {
+          "id": "3.3.1",
+          "name": "RSS for sums/differences",
+          "equation_text": "If q = x + y − z − w then δq = sqrt( (δx)^2 + (δy)^2 + (δz)^2 + (δw)^2 )",
+          "algorithm": {
+            "type": "absolute_rss",
+            "pseudocode": "u(q) = sqrt( Σ u(op)^2 )"
+          }
+        },
+        "product_or_quotient": {
+          "id": "3.3.2",
+          "name": "RSS of fractional uncertainties",
+          "equation_text": "If q = (x·y)/(z·w) then δq/|q| = sqrt( (δx/|x|)^2 + (δy/|y|)^2 + (δz/|z|)^2 + (δw/|w|)^2 )",
+          "algorithm": {
+            "type": "relative_rss",
+            "pseudocode": "u_rel(q) = sqrt( Σ (u(op)/|op|)^2 ); u(q) = |q| * u_rel(q)"
+          }
+        }
+      },
+      "interpretation_notes": "Uncertainty represents the standard deviation; ~34% probability lies outside ±1σ; <5% outside ±2σ."
+    },
+    "even_better": {
+      "model": "Single-variable differential (calculus) approximation for non-linear functions.",
+      "references": [
+        "3.4 Even Better Rules"
+      ],
+      "operators": {
+        "single_variable_function": {
+          "id": "3.4.1",
+          "name": "Differential method (one variable)",
+          "equation_text": "δq = |dq/dx| · δx (e.g., q=cos x ⇒ δq = |sin x| δx with δx in radians)",
+          "algorithm": {
+            "type": "single_variable_derivative",
+            "pseudocode": "u(q) = |derivative(f, x)| * u(x)"
+          }
+        }
+      }
+    },
+    "pro": {
+      "model": "Multivariable differential method with partial derivatives and RSS.",
+      "references": [
+        "3.5 Pro Method"
+      ],
+      "operators": {
+        "multivariable_function": {
+          "id": "3.5.1",
+          "name": "Partial derivatives + RSS",
+          "equation_text": "δq = sqrt( (∂q/∂x · δx)^2 + (∂q/∂y · δy)^2 + (∂q/∂z · δz)^2 + … )",
+          "algorithm": {
+            "type": "multivariable_derivatives_rss",
+            "pseudocode": "u(q) = sqrt( Σ (partial(f, var) * u(var))^2 )"
+          }
+        }
+      }
+    },
+    "repeated_measurements": {
+      "model": "Statistical aggregation for repeated measurements: mean, standard deviation, standard deviation of the mean.",
+      "references": [
+        "3.6 Repeated Measurements"
+      ],
+      "statistics": {
+        "mean": {
+          "id": "3.6.1",
+          "name": "Average",
+          "equation_text": "x̄ = (1/n) Σ x_i",
+          "excel": "=AVERAGE(range)"
+        },
+        "standard_deviation": {
+          "id": "3.6.3",
+          "name": "Sample standard deviation",
+          "equation_text": "S = sqrt( (1/(n−1)) Σ (x_i − x̄)^2 )",
+          "excel": "=STDEV(range)"
+        },
+        "std_dev_of_mean": {
+          "id": "3.6.2",
+          "name": "Standard deviation of the mean",
+          "equation_text": "S_m = S / sqrt(n)",
+          "excel": "=STDEV(range)/SQRT(COUNT(range))"
+        }
+      },
+      "interpretation_notes": "S describes spread of single measurements; S_m describes uncertainty on the mean; S_m ∝ 1/√n."
+    }
+  }
+}
