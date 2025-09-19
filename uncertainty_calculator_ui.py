@@ -549,6 +549,16 @@ def format_number(value: float) -> str:
     return f"{value:.12g}"
 
 
+def round_to_significant(value: float, figures: int = 1) -> float:
+    if figures <= 0:
+        raise ValueError("Significant figures must be positive")
+    if math.isclose(value, 0.0, abs_tol=1e-30):
+        return 0.0
+    exponent = math.floor(math.log10(abs(value)))
+    factor = 10 ** (exponent - figures + 1)
+    return round(value / factor) * factor
+
+
 def column_to_index(column: str) -> int:
     result = 0
     for char in column:
@@ -573,14 +583,31 @@ class App(tk.Tk):
         super().__init__()
         self.measurement = measurement
         self.propagation = propagation
+        self.sig_figs_var = tk.IntVar(value=1)
+        self._settings_window: Optional[tk.Toplevel] = None
         self.title("Uncertainty Helper")
         self.geometry("540x420")
         self.resizable(False, False)
         self._setup_ui()
 
     def _setup_ui(self) -> None:
-        notebook = ttk.Notebook(self)
-        notebook.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
+        top_frame = ttk.Frame(self)
+        top_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
+        top_frame.columnconfigure(0, weight=1)
+        top_frame.rowconfigure(1, weight=1)
+
+        toolbar = ttk.Frame(top_frame)
+        toolbar.grid(row=0, column=0, sticky=tk.EW, pady=(0, 8))
+        toolbar.columnconfigure(0, weight=1)
+
+        title_label = ttk.Label(toolbar, text="Uncertainty Helper")
+        title_label.grid(row=0, column=0, sticky=tk.W)
+        settings_label = ttk.Label(toolbar, text="⚙ Settings", cursor="hand2")
+        settings_label.grid(row=0, column=1, sticky=tk.E)
+        settings_label.bind("<Button-1>", lambda _event: self._open_settings())
+
+        notebook = ttk.Notebook(top_frame)
+        notebook.grid(row=1, column=0, sticky=tk.NSEW)
 
         meas_frame = ttk.Frame(notebook)
         calc_frame = ttk.Frame(notebook)
@@ -620,17 +647,26 @@ class App(tk.Tk):
         self.measure_value.insert(0, "1.0")
         self.measure_value.grid(row=2, column=1, sticky=tk.EW, pady=6)
 
-        ttk.Label(container, text="Formula:").grid(row=3, column=0, sticky=tk.W, pady=6)
+        ttk.Label(container, text="Uncertainty:").grid(row=3, column=0, sticky=tk.W, pady=6)
+        self.measure_uncertainty_var = tk.StringVar()
+        self.measure_uncertainty_entry = ttk.Entry(
+            container,
+            textvariable=self.measure_uncertainty_var,
+            state='readonly',
+        )
+        self.measure_uncertainty_entry.grid(row=3, column=1, sticky=tk.EW, pady=6)
+
+        ttk.Label(container, text="Formula:").grid(row=4, column=0, sticky=tk.W, pady=6)
         self.measure_formula_var = tk.StringVar()
         self.measure_formula_entry = ttk.Entry(container, textvariable=self.measure_formula_var, state='readonly')
-        self.measure_formula_entry.grid(row=3, column=1, sticky=tk.EW, pady=6)
-        ttk.Button(container, text="Copy", command=self._copy_measure_formula).grid(row=3, column=2, padx=(6, 0), pady=6)
+        self.measure_formula_entry.grid(row=4, column=1, sticky=tk.EW, pady=6)
+        ttk.Button(container, text="Copy", command=self._copy_measure_formula).grid(row=4, column=2, padx=(6, 0), pady=6)
 
         compute_btn = ttk.Button(container, text="Build formula", command=self._handle_measurement)
-        compute_btn.grid(row=4, column=0, columnspan=3, pady=(12, 8))
+        compute_btn.grid(row=5, column=0, columnspan=3, pady=(12, 8))
 
         self.measure_output = tk.Text(container, height=6, width=40)
-        self.measure_output.grid(row=5, column=0, columnspan=3, sticky=tk.EW, pady=(6, 0))
+        self.measure_output.grid(row=6, column=0, columnspan=3, sticky=tk.EW, pady=(6, 0))
         self.measure_output.configure(state=tk.DISABLED)
 
         # populate unit selection based on initial mode
@@ -682,6 +718,7 @@ class App(tk.Tk):
             self.measure_unit_var.set('')
 
     def _handle_measurement(self) -> None:
+        self.measure_uncertainty_var.set('')
         try:
             mode = self.measure_mode.get()
             cell = self.measure_cell.get().strip().upper()
@@ -694,13 +731,21 @@ class App(tk.Tk):
             target_cell = PropagationCalculator.map_value_cell_to_uncertainty(cell)
             result = self.measurement.formula_for(mode, cell, value, unit_label)
             unit_factor = self.measurement.unit_factor(mode, unit_label)
+            figures = self.sig_figs_var.get()
+            if figures <= 0:
+                raise ValueError("Significant figures must be positive")
         except Exception as exc:  # noqa: BLE001 - show any validation issue to the user
             messagebox.showerror("Measurement error", str(exc))
             return
 
         self.measure_formula_var.set(result.formula)
+        counts_term_value = result.selected_range.counts_term / unit_factor
+        uncertainty_value = abs(value) * result.selected_range.p_reading + counts_term_value
+        rounded_uncertainty = round_to_significant(uncertainty_value, figures)
+        uncertainty_text = f"{format_number(rounded_uncertainty)} {result.input_unit}".strip()
+        self.measure_uncertainty_var.set(uncertainty_text)
 
-        counts_term = format_number(result.selected_range.counts_term / unit_factor)
+        counts_term = format_number(counts_term_value)
         text_lines = [
             f"Paste into: {target_cell}",
             "",
@@ -712,6 +757,7 @@ class App(tk.Tk):
             f"p(reading): {format_number(result.selected_range.p_reading)}",
             f"Counts: {format_number(result.selected_range.counts)}",
             f"Counts term ({result.input_unit}): {counts_term}",
+            f"Uncertainty ({figures} sig fig): {uncertainty_text}",
             f"Accuracy: {result.selected_range.accuracy_text}",
         ]
         self._set_text(self.measure_output, '\n'.join(text_lines))
@@ -749,6 +795,54 @@ class App(tk.Tk):
         self.clipboard_clear()
         self.clipboard_append(text)
         self.update()
+
+    def _open_settings(self) -> None:
+        if self._settings_window and self._settings_window.winfo_exists():
+            self._settings_window.lift()
+            self._settings_window.focus_set()
+            return
+
+        window = tk.Toplevel(self)
+        window.title("Settings")
+        window.resizable(False, False)
+        window.transient(self)
+        window.grab_set()
+        self._settings_window = window
+
+        ttk.Label(window, text="Uncertainty significant figures:").grid(
+            row=0, column=0, padx=12, pady=(12, 6), sticky=tk.W
+        )
+        sig_spin = ttk.Spinbox(window, from_=1, to=6, textvariable=self.sig_figs_var, width=5)
+        sig_spin.grid(row=0, column=1, padx=12, pady=(12, 6), sticky=tk.W)
+        sig_spin.focus_set()
+
+        button_frame = ttk.Frame(window)
+        button_frame.grid(row=1, column=0, columnspan=2, padx=12, pady=(6, 12), sticky=tk.E)
+
+        def close() -> None:
+            try:
+                value = int(self.sig_figs_var.get())
+            except Exception:  # noqa: BLE001 - minimal dialog validation
+                messagebox.showerror("Settings", "Significant figures must be an integer")
+                return
+            if value <= 0:
+                messagebox.showerror("Settings", "Significant figures must be positive")
+                return
+            window.destroy()
+
+        ttk.Button(button_frame, text="Close", command=close).grid(row=0, column=0, padx=(6, 0))
+
+        def handle_close() -> None:
+            self._settings_window = None
+            window.destroy()
+
+        window.protocol("WM_DELETE_WINDOW", handle_close)
+
+        def on_destroy(event: tk.Event) -> None:  # type: ignore[override]
+            if event.widget is window:
+                self._settings_window = None
+
+        window.bind("<Destroy>", on_destroy, add=True)
 
 
 
