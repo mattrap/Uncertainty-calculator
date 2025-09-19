@@ -20,6 +20,48 @@ except ImportError as exc:  # pragma: no cover - Tkinter should be available on 
 
 MEASUREMENT_FILE = Path(__file__).resolve().with_name("fluke_115_specs.json")
 PROPAGATION_FILE = Path(__file__).resolve().with_name("uncertainty_propagation_rules.json")
+PREFERENCES_FILE = Path(__file__).resolve().with_name("user_preferences.json")
+
+
+@dataclass
+class UserPreferences:
+    significant_digits: int = 1
+    decimal_delimiter: str = '.'
+
+    def ensure_valid(self) -> None:
+        if self.significant_digits <= 0:
+            self.significant_digits = 1
+        if self.decimal_delimiter not in {'.', ','}:
+            self.decimal_delimiter = '.'
+
+    def as_dict(self) -> Dict[str, object]:
+        return {
+            "significant_digits": int(self.significant_digits),
+            "decimal_delimiter": self.decimal_delimiter,
+        }
+
+
+def load_user_preferences() -> UserPreferences:
+    try:
+        data = json.loads(PREFERENCES_FILE.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        prefs = UserPreferences()
+        prefs.ensure_valid()
+        return prefs
+    except json.JSONDecodeError:
+        prefs = UserPreferences()
+        prefs.ensure_valid()
+        return prefs
+    significant = int(data.get("significant_digits", 1))
+    delimiter = str(data.get("decimal_delimiter", '.'))
+    prefs = UserPreferences(significant_digits=significant, decimal_delimiter=delimiter)
+    prefs.ensure_valid()
+    return prefs
+
+
+def save_user_preferences(prefs: UserPreferences) -> None:
+    prefs.ensure_valid()
+    PREFERENCES_FILE.write_text(json.dumps(prefs.as_dict(), indent=2), encoding="utf-8")
 
 
 class RuleLoadError(RuntimeError):
@@ -126,7 +168,13 @@ class MeasurementCalculator:
         magnitude_si = abs(measured_value * unit_factor)
         chosen = self._find_range(mode, magnitude_si)
         coeff = format_number(chosen.p_reading)
-        counts_term = format_number(chosen.counts_term / unit_factor)
+        counts_term_value = chosen.counts_term / unit_factor
+        if math.isclose(counts_term_value, 0.0, abs_tol=1e-15):
+            counts_term = '0'
+        else:
+            resolution_term = format_number(chosen.resolution / unit_factor)
+            counts_literal = format_number(chosen.counts)
+            counts_term = f"({resolution_term}*{counts_literal})"
         cell_expr = cell_ref.upper()
         formula = f"={coeff}*ABS({cell_expr})+{counts_term}"
         return MeasurementResult(formula=formula, selected_range=chosen, input_unit=unit_label)
@@ -578,12 +626,68 @@ def index_to_column(index: int) -> str:
     return ''.join(reversed(letters))
 
 
+class PlaceholderEntry(tk.Entry):
+    """Entry widget that shows placeholder text when empty."""
+
+    def __init__(self, master: tk.Widget, placeholder: str, *, placeholder_color: str = 'grey50', **kwargs):
+        super().__init__(master, **kwargs)
+        self._placeholder = placeholder
+        self._placeholder_color = placeholder_color
+        self._default_fg = self.cget('fg')
+        self._has_placeholder = False
+        self._set_placeholder()
+        self.bind('<FocusIn>', self._on_focus_in, add=True)
+        self.bind('<FocusOut>', self._on_focus_out, add=True)
+
+    def _set_placeholder(self) -> None:
+        if self._has_placeholder or self.get():
+            return
+        self._has_placeholder = True
+        self.configure(fg=self._placeholder_color)
+        self.insert(0, self._placeholder)
+
+    def _clear_placeholder(self) -> None:
+        if not self._has_placeholder:
+            return
+        self.delete(0, tk.END)
+        self.configure(fg=self._default_fg)
+        self._has_placeholder = False
+
+    def _on_focus_in(self, _event: tk.Event) -> None:  # type: ignore[override]
+        self._clear_placeholder()
+
+    def _on_focus_out(self, _event: tk.Event) -> None:  # type: ignore[override]
+        if not self.get():
+            self._set_placeholder()
+
+    def get_value(self) -> str:
+        return '' if self._has_placeholder else self.get()
+
+    def set_value(self, value: str) -> None:
+        self._clear_placeholder()
+        self.delete(0, tk.END)
+        if value:
+            self.insert(0, value)
+        else:
+            self._set_placeholder()
+
+    def update_placeholder(self, placeholder: str) -> None:
+        self._placeholder = placeholder
+        if self._has_placeholder:
+            self.delete(0, tk.END)
+            self.insert(0, placeholder)
+            self.configure(fg=self._placeholder_color)
+
+
 class App(tk.Tk):
     def __init__(self, measurement: MeasurementCalculator, propagation: PropagationCalculator):
         super().__init__()
         self.measurement = measurement
         self.propagation = propagation
-        self.sig_figs_var = tk.IntVar(value=1)
+        self.preferences = load_user_preferences()
+        self.sig_figs_var = tk.IntVar(value=self.preferences.significant_digits)
+        self.decimal_delimiter_var = tk.StringVar(value=self.preferences.decimal_delimiter)
+        self._delimiter_button: Optional[ttk.Button] = None
         self._settings_window: Optional[tk.Toplevel] = None
         self.title("Uncertainty Helper")
         self.geometry("540x420")
@@ -638,14 +742,13 @@ class App(tk.Tk):
         self.measure_unit_menu.grid(row=0, column=2, sticky=tk.EW, padx=(6, 0), pady=(0, 6))
 
         ttk.Label(container, text="Excel cell (value):").grid(row=1, column=0, sticky=tk.W, pady=6)
-        self.measure_cell = tk.Entry(container)
-        self.measure_cell.insert(0, "A37")
+        self.measure_cell = PlaceholderEntry(container, placeholder="A37")
         self.measure_cell.grid(row=1, column=1, sticky=tk.EW, pady=6)
 
         ttk.Label(container, text="Measured value:").grid(row=2, column=0, sticky=tk.W, pady=6)
-        self.measure_value = tk.Entry(container)
-        self.measure_value.insert(0, "1.0")
+        self.measure_value = PlaceholderEntry(container, placeholder=self._default_numeric_placeholder())
         self.measure_value.grid(row=2, column=1, sticky=tk.EW, pady=6)
+        self._configure_numeric_entry(self.measure_value)
 
         ttk.Label(container, text="Uncertainty:").grid(row=3, column=0, sticky=tk.W, pady=6)
         self.measure_uncertainty_var = tk.StringVar()
@@ -700,6 +803,106 @@ class App(tk.Tk):
         self.calc_output.grid(row=4, column=0, columnspan=3, sticky=tk.EW, pady=(6, 0))
         self.calc_output.configure(state=tk.DISABLED)
 
+    def _current_decimal_delimiter(self) -> str:
+        value = self.decimal_delimiter_var.get()
+        return value if value in {'.', ','} else '.'
+
+    def _default_numeric_placeholder(self) -> str:
+        return f"1{self._current_decimal_delimiter()}0"
+
+    def _configure_numeric_entry(self, entry: PlaceholderEntry) -> None:
+        command = (self.register(self._validate_numeric_input), "%P")
+        entry.configure(validate='key', validatecommand=command)
+        setattr(entry, "_validatecommand", command)
+
+    def _validate_numeric_input(self, proposed: str) -> bool:
+        if proposed == '':
+            return True
+        delimiter = self._current_decimal_delimiter()
+        alternate = ',' if delimiter == '.' else '.'
+        if alternate in proposed:
+            return False
+        allowed = set('0123456789+-')
+        allowed.add(delimiter)
+        if not all(char in allowed for char in proposed):
+            return False
+        if proposed.count(delimiter) > 1:
+            return False
+        if proposed in {delimiter, '+', '-'}:
+            return True
+        if proposed.startswith(('-', '+')):
+            rest = proposed[1:]
+            if rest.startswith(('-', '+')):
+                return False
+        if '+' in proposed[1:] or '-' in proposed[1:]:
+            return False
+        return True
+
+    def _parse_user_float(self, text: str) -> float:
+        delimiter = self._current_decimal_delimiter()
+        alternate = ',' if delimiter == '.' else '.'
+        if alternate in text:
+            raise ValueError(f"Use '{delimiter}' as the decimal delimiter")
+        if text.count(delimiter) > 1:
+            raise ValueError("Enter a valid numeric value")
+        normalized = text.replace(delimiter, '.') if delimiter != '.' else text
+        try:
+            return float(normalized)
+        except ValueError as exc:
+            raise ValueError(f"Enter a numeric value using '{delimiter}' as the decimal delimiter") from exc
+
+    def _format_user_number(self, value: float) -> str:
+        text = format_number(value)
+        delimiter = self._current_decimal_delimiter()
+        if delimiter == ',' and '.' in text:
+            whole, _, fraction = text.partition('.')
+            return f"{whole},{fraction}"
+        return text
+
+    def _apply_delimiter_to_entry(self, entry: PlaceholderEntry) -> None:
+        entry.update_placeholder(self._default_numeric_placeholder())
+        value = entry.get_value()
+        if not value:
+            entry.set_value('')
+            return
+        normalized = value.replace(',', '.')
+        try:
+            numeric = float(normalized)
+        except ValueError:
+            return
+        entry.set_value(self._format_user_number(numeric))
+
+    def _update_preferences_from_vars(self) -> None:
+        try:
+            figures = int(self.sig_figs_var.get())
+        except Exception:
+            figures = self.preferences.significant_digits
+        if figures <= 0:
+            figures = 1
+        self.preferences.significant_digits = figures
+        self.preferences.decimal_delimiter = self._current_decimal_delimiter()
+        self.sig_figs_var.set(figures)
+        self.decimal_delimiter_var.set(self.preferences.decimal_delimiter)
+
+    def _save_preferences(self) -> None:
+        save_user_preferences(self.preferences)
+
+    def _delimiter_button_text(self) -> str:
+        return f"Decimal delimiter: {self._current_decimal_delimiter()}"
+
+    def _handle_delimiter_updated(self) -> None:
+        if self._delimiter_button is not None and self._delimiter_button.winfo_exists():
+            self._delimiter_button.configure(text=self._delimiter_button_text())
+        self._apply_delimiter_to_entry(self.measure_value)
+        self._update_preferences_from_vars()
+        self._save_preferences()
+
+    def _toggle_delimiter(self) -> None:
+        current = self._current_decimal_delimiter()
+        new_value = ',' if current == '.' else '.'
+        self.decimal_delimiter_var.set(new_value)
+        self._handle_delimiter_updated()
+
     def _on_measure_mode_change(self, *_: str) -> None:
         mode = self.measure_mode.get()
         try:
@@ -721,13 +924,16 @@ class App(tk.Tk):
         self.measure_uncertainty_var.set('')
         try:
             mode = self.measure_mode.get()
-            cell = self.measure_cell.get().strip().upper()
+            cell = self.measure_cell.get_value().strip().upper()
             if not cell:
                 raise ValueError("Enter the Excel cell containing the measurement")
             unit_label = self.measure_unit_var.get().strip()
             if not unit_label:
                 raise ValueError("Select the units for the measured value")
-            value = float(self.measure_value.get())
+            value_text = self.measure_value.get_value().strip()
+            if not value_text:
+                raise ValueError("Enter the measured value")
+            value = self._parse_user_float(value_text)
             target_cell = PropagationCalculator.map_value_cell_to_uncertainty(cell)
             result = self.measurement.formula_for(mode, cell, value, unit_label)
             unit_factor = self.measurement.unit_factor(mode, unit_label)
@@ -742,10 +948,10 @@ class App(tk.Tk):
         counts_term_value = result.selected_range.counts_term / unit_factor
         uncertainty_value = abs(value) * result.selected_range.p_reading + counts_term_value
         rounded_uncertainty = round_to_significant(uncertainty_value, figures)
-        uncertainty_text = f"{format_number(rounded_uncertainty)} {result.input_unit}".strip()
+        uncertainty_text = f"{self._format_user_number(rounded_uncertainty)} {result.input_unit}".strip()
         self.measure_uncertainty_var.set(uncertainty_text)
 
-        counts_term = format_number(counts_term_value)
+        counts_term = self._format_user_number(counts_term_value)
         text_lines = [
             f"Paste into: {target_cell}",
             "",
@@ -754,8 +960,8 @@ class App(tk.Tk):
             f"Input units: {result.input_unit}",
             f"Range max: {result.selected_range.display_range}",
             f"Resolution: {result.selected_range.display_resolution}",
-            f"p(reading): {format_number(result.selected_range.p_reading)}",
-            f"Counts: {format_number(result.selected_range.counts)}",
+            f"p(reading): {self._format_user_number(result.selected_range.p_reading)}",
+            f"Counts: {self._format_user_number(result.selected_range.counts)}",
             f"Counts term ({result.input_unit}): {counts_term}",
             f"Uncertainty ({figures} sig fig): {uncertainty_text}",
             f"Accuracy: {result.selected_range.accuracy_text}",
@@ -808,6 +1014,8 @@ class App(tk.Tk):
         window.transient(self)
         window.grab_set()
         self._settings_window = window
+        window.columnconfigure(0, weight=0)
+        window.columnconfigure(1, weight=0)
 
         ttk.Label(window, text="Uncertainty significant figures:").grid(
             row=0, column=0, padx=12, pady=(12, 6), sticky=tk.W
@@ -816,10 +1024,18 @@ class App(tk.Tk):
         sig_spin.grid(row=0, column=1, padx=12, pady=(12, 6), sticky=tk.W)
         sig_spin.focus_set()
 
-        button_frame = ttk.Frame(window)
-        button_frame.grid(row=1, column=0, columnspan=2, padx=12, pady=(6, 12), sticky=tk.E)
+        self._delimiter_button = ttk.Button(
+            window,
+            text=self._delimiter_button_text(),
+            command=self._toggle_delimiter,
+            width=18,
+        )
+        self._delimiter_button.grid(row=1, column=0, columnspan=2, padx=12, pady=(0, 6), sticky=tk.W)
 
-        def close() -> None:
+        button_frame = ttk.Frame(window)
+        button_frame.grid(row=2, column=0, columnspan=2, padx=12, pady=(6, 12), sticky=tk.E)
+
+        def save() -> None:
             try:
                 value = int(self.sig_figs_var.get())
             except Exception:  # noqa: BLE001 - minimal dialog validation
@@ -828,12 +1044,16 @@ class App(tk.Tk):
             if value <= 0:
                 messagebox.showerror("Settings", "Significant figures must be positive")
                 return
+            self.sig_figs_var.set(value)
+            self._update_preferences_from_vars()
+            self._save_preferences()
             window.destroy()
 
-        ttk.Button(button_frame, text="Close", command=close).grid(row=0, column=0, padx=(6, 0))
+        ttk.Button(button_frame, text="Save", command=save).grid(row=0, column=0, padx=(6, 0))
 
         def handle_close() -> None:
             self._settings_window = None
+            self._delimiter_button = None
             window.destroy()
 
         window.protocol("WM_DELETE_WINDOW", handle_close)
@@ -841,6 +1061,7 @@ class App(tk.Tk):
         def on_destroy(event: tk.Event) -> None:  # type: ignore[override]
             if event.widget is window:
                 self._settings_window = None
+                self._delimiter_button = None
 
         window.bind("<Destroy>", on_destroy, add=True)
 
